@@ -2,7 +2,6 @@ import os
 import uuid
 import hashlib
 from datetime import datetime, timedelta, timezone
-from typing import Optional
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
@@ -35,6 +34,7 @@ class AuthSession(Base):
     __tablename__ = "jwt_auth_sessions"
     id = Column(String, primary_key=True, index=True, default=lambda: str(uuid.uuid4()))
     token_hash = Column(String, unique=True, index=True, nullable=False)
+    audience = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     expires_at = Column(DateTime(timezone=True), nullable=False)
 
@@ -52,13 +52,20 @@ def hash_token(token: str) -> str:
 def generate_opaque_token() -> str:
     return os.urandom(32).hex()
 
-def create_access_token() -> str:
+def create_access_token(audience: str) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=settings.ACCESS_TOKEN_EXPIRE_DAYS)
-    to_encode = {"exp": expire, "type": "access"}
+    to_encode = {
+        "exp": expire, 
+        "type": "access",
+        "aud": audience
+    }
     import jwt
     return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 # --- API SCHEMAS ---
+class TokenRequest(BaseModel):
+    audience: str
+
 class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
@@ -71,24 +78,26 @@ v1_router = APIRouter(prefix="/api/v1")
 secret_header = APIKeyHeader(name="X-Instance-Secret", auto_error=True)
 
 @v1_router.post("/auth/token", response_model=TokenResponse)
-def issue_tokens(secret: str = Depends(secret_header), db: Session = Depends(get_db)):
-    """Initial exchange: Verifies instance secret and issues the initial token pair."""
+def issue_tokens(
+    payload: TokenRequest,
+    secret: str = Depends(secret_header), 
+    db: Session = Depends(get_db)
+):
     if secret != settings.TOKEN_ISSUER_SECRET:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, 
             detail="Invalid token issuer secret"
         )
-    
-    # 1. Generate short-lived Access Token (JWT)
-    access_token = create_access_token()
-    
-    # 2. Generate long-lived Refresh Token (Opaque)
+
+    access_token = create_access_token(audience=payload.audience)
     raw_refresh_token = generate_opaque_token()
     refresh_hash = hash_token(raw_refresh_token)
-    
-    # 3. Save hashed refresh token to Supabase
     expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    db_session = AuthSession(token_hash=refresh_hash, expires_at=expires_at)
+    db_session = AuthSession(
+        token_hash=refresh_hash, 
+        audience=payload.audience,
+        expires_at=expires_at
+    )
     db.add(db_session)
     db.commit()
     
@@ -97,12 +106,8 @@ def issue_tokens(secret: str = Depends(secret_header), db: Session = Depends(get
 
 @v1_router.post("/auth/refresh", response_model=TokenResponse)
 def refresh_access_token(payload: RefreshRequest, db: Session = Depends(get_db)):
-    """Rotation/Refresh: Validates opaque refresh token and provides rotating pairs."""
     incoming_hash = hash_token(payload.refresh_token)
-    
-    # Look up the session in Supabase
     db_session = db.query(AuthSession).filter(AuthSession.token_hash == incoming_hash).first()
-    
     if not db_session:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
         
@@ -110,13 +115,11 @@ def refresh_access_token(payload: RefreshRequest, db: Session = Depends(get_db))
         db.delete(db_session)
         db.commit()
         raise HTTPException(status_code=401, detail="Refresh token expired")
-    
-    # Generate new pair
-    new_access_token = create_access_token()
+
+    new_access_token = create_access_token(audience=db_session.audience)
     new_raw_refresh_token = generate_opaque_token()
     new_refresh_hash = hash_token(new_raw_refresh_token)
-    
-    # Update database record (Token Rotation strategy)
+
     db_session.token_hash = new_refresh_hash
     db_session.expires_at = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     db.commit()
