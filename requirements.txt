@@ -5,3 +5,4 @@ pyjwt[crypto]
 psycopg2-binary
 sqlalchemy
 pydantic-settings
+boto3
