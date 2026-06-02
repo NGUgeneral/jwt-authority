@@ -5,25 +5,48 @@ from datetime import datetime, timedelta, timezone
 from fastapi import FastAPI, APIRouter, Depends, HTTPException, status
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy import create_engine, Column, String, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
+from typing import Literal, Optional
 from mangum import Mangum
 
 # --- CONFIGURATION & ENVIRONMENT ---
 class Settings(BaseSettings):
+    APP_ENV: Literal["local", "production"] = "production"
     DATABASE_URL: str
     TOKEN_ISSUER_SECRET: str
-    JWT_SECRET_KEY: str
+    JWT_SECRET_KEY: Optional[str] = None
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_DAYS: int = 1
     REFRESH_TOKEN_EXPIRE_DAYS: int = 365
+    AWS_REGION: str = "eu-west-1"
 
-    class Config:
-        env_file = ".env"
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()
+
+# --- CENTRALIZED SECRET INJECTOR (COLD START) ---
+def resolve_jwt_secret() -> str:
+    """Conditionally retrieves the encryption secret based on the environment."""
+    if settings.APP_ENV == "local":
+        if not settings.JWT_SECRET_KEY:
+            raise RuntimeError("CRITICAL: JWT_SECRET_KEY must be defined in your local .env file.")
+        return settings.JWT_SECRET_KEY
+
+    import boto3
+    try:
+        ssm_client = boto3.client('ssm', region_name=settings.AWS_REGION)
+        response = ssm_client.get_parameter(
+            Name='/flagship/prod/jwt-secret',
+            WithDecryption=True
+        )
+        return response['Parameter']['Value']
+    except Exception as e:
+        raise RuntimeError(f"CRITICAL: Failed to load production secret from SSM: {str(e)}")
+
+LIVE_JWT_SECRET = resolve_jwt_secret()
 
 # --- DATABASE SETUP ---
 engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True, pool_recycle=300)
@@ -60,7 +83,7 @@ def create_access_token(audience: str) -> str:
         "aud": audience
     }
     import jwt
-    return jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+    return jwt.encode(to_encode, LIVE_JWT_SECRET, algorithm=settings.JWT_ALGORITHM)
 
 # --- API SCHEMAS ---
 class TokenRequest(BaseModel):
@@ -144,7 +167,6 @@ app = FastAPI(
     description="Handles token generation, validation, and session rotation via AWS Lambda."
 )
 
-# Register the versioned router
 app.include_router(v1_router)
 
 # --- AWS LAMBDA HANDLER ---
