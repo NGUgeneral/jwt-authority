@@ -37,7 +37,7 @@ def resolve_jwt_secret() -> str:
 
     import boto3
     try:
-        ssm_client = boto3.client('ssm', region_name=settings.AWS_REGION)
+        ssm_client = boto3.client('ssm', region_name=settings.TARGET_AWS_REGION)
         response = ssm_client.get_parameter(
             Name='/flagship/prod/jwt-secret',
             WithDecryption=True
