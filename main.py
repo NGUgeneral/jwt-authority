@@ -100,18 +100,6 @@ class RefreshRequest(BaseModel):
 v1_router = APIRouter(prefix="/api/v1")
 secret_header = APIKeyHeader(name="X-Instance-Secret", auto_error=True)
 
-@v1_router.get("/health")
-def health_check(db: Session = Depends(get_db)):
-    try:
-        db.execute(text("SELECT 1"))
-        return {"status": "OK", "database": "connected"}
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Status Error"
-        )
-        
-
 @v1_router.post("/auth/token", response_model=TokenResponse)
 def issue_tokens(
     payload: TokenRequest,
@@ -180,6 +168,17 @@ app = FastAPI(
 )
 
 app.include_router(v1_router)
+
+@app.get("/health")
+def health_check(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+        return {"status": "OK", "database": "connected"}
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Status Error"
+        )
 
 # --- AWS LAMBDA HANDLER ---
 handler = Mangum(app)
