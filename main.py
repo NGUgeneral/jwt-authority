@@ -10,7 +10,6 @@ from sqlalchemy import create_engine, Column, String, DateTime, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
 from typing import Literal, Optional
-from mangum import Mangum
 
 # --- CONFIGURATION & ENVIRONMENT ---
 class Settings(BaseSettings):
@@ -27,26 +26,10 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# --- CENTRALIZED SECRET INJECTOR (COLD START) ---
-def resolve_jwt_secret() -> str:
-    """Conditionally retrieves the encryption secret based on the environment."""
-    if settings.APP_ENV == "local":
-        if not settings.JWT_SECRET_KEY:
-            raise RuntimeError("CRITICAL: JWT_SECRET_KEY must be defined in your local .env file.")
-        return settings.JWT_SECRET_KEY
+if not settings.JWT_SECRET_KEY:
+    raise RuntimeError("CRITICAL: JWT_SECRET_KEY environment variable is required but not set!")
 
-    import boto3
-    try:
-        ssm_client = boto3.client('ssm', region_name=settings.TARGET_AWS_REGION)
-        response = ssm_client.get_parameter(
-            Name='/flagship/prod/jwt-secret',
-            WithDecryption=True
-        )
-        return response['Parameter']['Value']
-    except Exception as e:
-        raise RuntimeError(f"CRITICAL: Failed to load production secret from SSM: {str(e)}")
-
-LIVE_JWT_SECRET = resolve_jwt_secret()
+LIVE_JWT_SECRET = settings.JWT_SECRET_KEY
 
 # --- DATABASE SETUP ---
 engine = create_engine(settings.DATABASE_URL, pool_pre_ping=True, pool_recycle=300)
@@ -179,6 +162,3 @@ def health_check(db: Session = Depends(get_db)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Status Error"
         )
-
-# --- AWS LAMBDA HANDLER ---
-handler = Mangum(app)
