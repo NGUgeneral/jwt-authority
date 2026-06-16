@@ -1,13 +1,15 @@
-FROM public.ecr.aws/lambda/python:3.11
+FROM python:3.12-slim
 
-# Copy requirements first to leverage Docker caching
-COPY requirements.txt ${LAMBDA_TASK_ROOT}
+WORKDIR /app
 
-# Install dependencies directly into the Lambda task root
+# Copy requirements first for optimal layer caching
+COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the application code
-COPY main.py ${LAMBDA_TASK_ROOT}
+# Copy the rest of the application
+COPY . .
 
-# Point Lambda to our Mangum handler inside main.py
-CMD [ "main.handler" ]
+# Expose port 3000 for the Auth service
+EXPOSE 3000
+
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "3000"]
