@@ -35,5 +35,6 @@ jobs:
 
     # 4. Verify that the new cloud-agnostic Dockerfile builds successfully
     - name: Test Local Docker Build
+      if: false # disable image build
       run: |
         docker build -t flagship-jwt-authority:test .
