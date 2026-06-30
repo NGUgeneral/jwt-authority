@@ -83,7 +83,7 @@ class RefreshRequest(BaseModel):
 v1_router = APIRouter(prefix="/api/v1")
 secret_header = APIKeyHeader(name="X-Instance-Secret", auto_error=True)
 
-@v1_router.post("/auth/token", response_model=TokenResponse)
+@v1_router.post("/token", response_model=TokenResponse)
 def issue_tokens(
     payload: TokenRequest,
     secret: str = Depends(secret_header), 
@@ -110,7 +110,7 @@ def issue_tokens(
     return {"access_token": access_token, "refresh_token": raw_refresh_token}
 
 
-@v1_router.post("/auth/refresh", response_model=TokenResponse)
+@v1_router.post("/refresh", response_model=TokenResponse)
 def refresh_access_token(payload: RefreshRequest, db: Session = Depends(get_db)):
     incoming_hash = hash_token(payload.refresh_token)
     db_session = db.query(AuthSession).filter(AuthSession.token_hash == incoming_hash).first()
@@ -133,7 +133,7 @@ def refresh_access_token(payload: RefreshRequest, db: Session = Depends(get_db))
     return {"access_token": new_access_token, "refresh_token": new_raw_refresh_token}
 
 
-@v1_router.post("/auth/revoke", status_code=status.HTTP_204_NO_CONTENT)
+@v1_router.post("/revoke", status_code=status.HTTP_204_NO_CONTENT)
 def revoke_token(payload: RefreshRequest, db: Session = Depends(get_db)):
     """Explicitly deletes a session row, immediately invalidating the refresh capabilities."""
     incoming_hash = hash_token(payload.refresh_token)
