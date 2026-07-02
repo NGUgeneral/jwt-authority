@@ -37,4 +37,4 @@ jobs:
     - name: Test Local Docker Build
       if: false # disable image build
       run: |
-        docker build -t flagship-jwt-authority:test .
+        docker build -t headsntails-jwt-authority:test .
