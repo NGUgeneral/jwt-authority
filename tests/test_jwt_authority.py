@@ -8,7 +8,7 @@ HEADERS = {"X-Instance-Secret": "test_issuer_secret_key_123!"}
 def test_issue_tokens_success(client, db_session):
     """Verify that valid payload and secret yields signed JWT access and opaque refresh tokens."""
     payload = {"audience": "headsntails-core"}
-    response = client.post("/api/v1/token", json=payload, headers=HEADERS)
+    response = client.post("/api/v1/auth/token", json=payload, headers=HEADERS)
     
     assert response.status_code == 200
     data = response.json()
@@ -33,12 +33,12 @@ def test_issue_tokens_unauthorized(client):
     payload = {"audience": "headsntails-core"}
     
     # 1. Missing secret header
-    response = client.post("/api/v1/token", json=payload)
+    response = client.post("/api/v1/auth/token", json=payload)
     assert response.status_code == 403
 
     # 2. Invalid secret header values
     bad_headers = {"X-Instance-Secret": "compromised_secret"}
-    response = client.post("/api/v1/token", json=payload, headers=bad_headers)
+    response = client.post("/api/v1/auth/token", json=payload, headers=bad_headers)
     assert response.status_code == 401
     assert response.json()["detail"] == "Invalid token issuer secret"
 
@@ -53,7 +53,7 @@ def test_refresh_token_rotation_success(client, db_session):
     db_session.commit()
 
     payload = {"refresh_token": "old_opaque_token_string"}
-    response = client.post("/api/v1/refresh", json=payload)
+    response = client.post("/api/v1/auth/refresh", json=payload)
     
     assert response.status_code == 200
     data = response.json()
@@ -75,7 +75,7 @@ def test_refresh_token_expired(client, db_session):
     db_session.commit()
 
     payload = {"refresh_token": token_str}
-    response = client.post("/api/v1/refresh", json=payload)
+    response = client.post("/api/v1/auth/refresh", json=payload)
     
     assert response.status_code == 401
     assert response.json()["detail"] == "Refresh token expired"
@@ -96,7 +96,7 @@ def test_revoke_token_explicit(client, db_session):
     db_session.commit()
 
     payload = {"refresh_token": token_str}
-    response = client.post("/api/v1/revoke", json=payload)
+    response = client.post("/api/v1/auth/revoke", json=payload)
     
     assert response.status_code == 204
     assert db_session.query(AuthSession).filter(AuthSession.token_hash == hash_token(token_str)).first() is None
