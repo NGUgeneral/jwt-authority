@@ -80,7 +80,7 @@ class TokenResponse(BaseModel):
 class RefreshRequest(BaseModel):
     refresh_token: str
 
-v1_router = APIRouter(prefix="/api/v1")
+v1_router = APIRouter(prefix="/api/v1/auth")
 secret_header = APIKeyHeader(name="X-Instance-Secret", auto_error=True)
 
 @v1_router.post("/token", response_model=TokenResponse)
